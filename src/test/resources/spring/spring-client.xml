@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:util="http://www.springframework.org/schema/util"
+       xmlns:gfe="http://www.springframework.org/schema/gemfire"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util.xsd
+
+		http://www.springframework.org/schema/gemfire http://www.springframework.org/schema/gemfire/spring-gemfire.xsd">
+    <util:properties id="props">
+        <prop key="mcast-port">0</prop>
+        <prop key="log-level">config</prop>
+    </util:properties>
+
+    <gfe:client-cache properties-ref="props" pdx-read-serialized="false" pdx-serializer-ref=""/>
+
+    <gfe:pool id="myPool" subscription-enabled="true" pr-single-hop-enabled="true">
+        <gfe:locator host="localhost" port="10334"/>
+    </gfe:pool>
+
+    <gfe:client-region id="TestData" shortcut="PROXY" pool-name="myPool"/>
+    <gfe:client-region id="PdxTypes" shortcut="PROXY" pool-name="myPool"/>
+    <gfe:client-region id="OtherRegion" shortcut="PROXY" pool-name="myPool"/>
+    <bean class="io.pivotal.gemfire.demo.Client" init-method="putABunch">
+        <property name="testData" ref="OtherRegion"/>
+        <property name="pdxTypes" ref="PdxTypes"/>
+    </bean>
+</beans>
+
+
