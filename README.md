@@ -1,9 +1,8 @@
-This sample copies data from one gemfire system to another over a TCP connection.   This is sometimes useful when we want to keep a system running and migrate the data to another system.
+This sample copies data from one gemfire system to another over a TCP connection.   This is sometimes useful when we want to keep a system running and migrate the data contained one GemFire system to another GemFire system.
 
-Data will only flow in one direction and for only the regions listed in the source command.   It is possible to run more then one source command if we are aggregating more then one system into a single GemFire system.
+Data will only flow in one direction and for only the regions listed in the source command.   It is possible to run more then one source command if we are aggregating more then one system into a single GemFire system.   
 
-The process uses a GemFire capability called CQ to receive the initial data set and then listen for any changes.   On the recieving side the process just does single puts.
-
+The source process uses a GemFire capability called CQ to receive the initial data set and then listen for any changes.   On the destination side the process just does single puts as data is sent from the source.
 
 How to build
 
