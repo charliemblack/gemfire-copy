@@ -47,3 +47,49 @@ Region - TestData size = 1000
 Region - PdxTypes size = 1248
 Region - OtherRegion size = 10000
 ```
+
+```
+.
+├── LICENSE.txt
+├── README.md
+├── build - this is where the build artifacts go
+│   ├── install
+│   │   └── gemfire-copy
+│   │       ├── bin
+│   │       │   ├── destination.sh - the script to run the destination app
+│   │       │   ├── gemfire-copy  - just ignore this app gradle artifact
+│   │       │   ├── gemfire-copy.bat - just ignore this app gradle artifact
+│   │       │   └── source.sh - the script to run the source app
+│   │       └── lib - where all of the dependacies go
+├── build.gradle
+├── config - Some config files to test the app with on a local machine
+├── gradlew - gradle is cool
+├── gradlew.bat - gradle is cool
+├── scripts
+│   ├── clear_data.sh - clears out the GemFire server data
+│   ├── shutdown_gemfire.sh - shuts down the GemFire grids
+│   ├── start_gemfire.sh - Starts up both GemFire systems site a and site b
+│   ├── start_locator.sh - gets called by the start GemFire script to start a locator
+│   └── start_server.sh - gets called by the start GemFire script to start a server instance
+└── src
+    ├── main
+    │   ├── dist
+    │   │   └── bin
+    │   │       ├── destination.sh - the src for the destination script
+    │   │       └── source.sh - the src for the source script
+    │   ├── java
+    │   │   └── io
+    │   │       └── pivotal
+    │   │           └── gemfire
+    │   │               └── demo
+    │   │                   ├── Action.java - the message container that is sent between the source and the destination process.
+    │   │                   ├── Destination.java - the destination app code
+    │   │                   ├── Source.java - the source app code
+    │   │                   └── ToolBox.java - some helper functions
+    │   └── resources
+    │       └── gemfire.properties - Some common GemFire properties
+    └── test
+        └── resources
+            └── spring
+                └── spring-client.xml - At one point this was all spring so I left this in place incase I change my mind to put spring back in
+```
