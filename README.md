@@ -11,10 +11,10 @@ cd <project root dir>
 
 This creates a self contained directory that can be zipped up and copied to a target environment.
 ```
-<project home>/build/install/
+<project home>/build/install/gemfire-copy
 ```
 
-There are two commands in the bin directory
+There are two commands in the gemfire-copy/bin directory
 * destination.sh - this will be the "client" to the destination grid
 * source.sh - this will be the "client" to the source grid
 

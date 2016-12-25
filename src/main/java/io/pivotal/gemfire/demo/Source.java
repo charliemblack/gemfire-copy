@@ -18,9 +18,9 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Created by Charlie Black on 12/22/16.
@@ -69,7 +69,7 @@ public class Source {
         RegionSource regionSource = new RegionSource(openSocket(), region, regionName);
         cqAttributesFactory.addCqListener(regionSource);
 
-        CqQuery cq = queryService.newCq("CopyCQ_"+regionName, "select * from /" + regionName, cqAttributesFactory.create());
+        CqQuery cq = queryService.newCq("CopyCQ_" + regionName, "select * from /" + regionName, cqAttributesFactory.create());
         CqResults results = cq.executeWithInitialResults();
         for (Object o : results.asList()) {
             Struct s = (Struct) o;
@@ -95,9 +95,11 @@ public class Source {
         private CountDownLatch countDownLatch = new CountDownLatch(1);
         private ObjectOutputStream objectOutputStream;
         private Region region;
+        private final ReentrantLock lock = new ReentrantLock();
 
         public RegionSource(Socket socket, Region region, String regionName) throws IOException {
             objectOutputStream = new ObjectOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+            //Not possible to have another thread accessing the stream at this point since we are still in the constructor
             objectOutputStream.writeObject(regionName);
             this.region = region;
         }
@@ -137,11 +139,23 @@ public class Source {
                 action.setPDXInstance(true);
                 action.setValue(JSONFormatter.toJSON((PdxInstance) action.getValue()));
             }
-            objectOutputStream.writeObject(action);
+            lock.lock();
+            try {
+                // need to protect the stream just incase the flush from the other thread has a race
+                objectOutputStream.writeObject(action);
+            } finally {
+                lock.unlock();
+            }
         }
 
         public void flush() throws IOException {
-            objectOutputStream.flush();
+            lock.lock();
+            try {
+                // need to protect the stream just incase the flush from the other thread has a race
+                objectOutputStream.flush();
+            } finally {
+                lock.unlock();
+            }
         }
     }
 
