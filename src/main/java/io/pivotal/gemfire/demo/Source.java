@@ -1,5 +1,7 @@
 package io.pivotal.gemfire.demo;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gemstone.gemfire.cache.Operation;
 import com.gemstone.gemfire.cache.Region;
 import com.gemstone.gemfire.cache.client.ClientCache;
@@ -9,6 +11,7 @@ import com.gemstone.gemfire.cache.query.*;
 import com.gemstone.gemfire.internal.concurrent.ConcurrentHashSet;
 import com.gemstone.gemfire.pdx.JSONFormatter;
 import com.gemstone.gemfire.pdx.PdxInstance;
+import com.gemstone.gemfire.pdx.ReflectionBasedAutoSerializer;
 
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -29,6 +32,7 @@ public class Source {
     private ClientCache clientCache;
     private String[] destinationInfo;
     private Set<RegionSource> regionSourceSet = new ConcurrentHashSet<>();
+    private ObjectMapper mapper = new ObjectMapper();
 
     public Source() {
         new Timer().schedule(new TimerTask() {
@@ -53,6 +57,8 @@ public class Source {
         factory.addPoolLocator(locatorInfo[0], Integer.parseInt(locatorInfo[1]));
         factory.set("name", "source");
         factory.set("statistic-archive-file", "source.gfs");
+        factory.setPdxReadSerialized(true);
+        factory.setPdxSerializer(new ReflectionBasedAutoSerializer("com.cdk.dmg.changeset.model.*"));
         clientCache = factory.create();
         ToolBox.addTimerForPdxTypeMetrics(clientCache);
     }
@@ -135,10 +141,7 @@ public class Source {
         }
 
         public void send(Action action) throws IOException {
-            if (action.getValue() instanceof PdxInstance) {
-                action.setPDXInstance(true);
-                action.setValue(JSONFormatter.toJSON((PdxInstance) action.getValue()));
-            }
+            setActionValue(action);
             lock.lock();
             try {
                 // need to protect the stream just incase the flush from the other thread has a race
@@ -155,6 +158,21 @@ public class Source {
                 objectOutputStream.flush();
             } finally {
                 lock.unlock();
+            }
+        }
+    }
+
+    void setActionValue(Action action) throws JsonProcessingException {
+        if (action.getValue() instanceof PdxInstance) {
+            action.setPDXInstance(true);
+            PdxInstance value = (PdxInstance) action.getValue();
+            if (!(value.getObject() instanceof PdxInstance)) {
+                String val = mapper.writeValueAsString(value.getObject());
+                action.setPDXInstance(false);
+                action.setClassName(value.getObject().getClass());
+                action.setValue(val);
+            } else {
+                action.setValue(JSONFormatter.toJSON((PdxInstance) action.getValue()));
             }
         }
     }

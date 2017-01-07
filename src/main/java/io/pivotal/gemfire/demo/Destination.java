@@ -1,11 +1,13 @@
 package io.pivotal.gemfire.demo;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gemstone.gemfire.cache.Region;
 import com.gemstone.gemfire.cache.client.ClientCache;
 import com.gemstone.gemfire.cache.client.ClientCacheFactory;
 import com.gemstone.gemfire.cache.client.ClientRegionShortcut;
 import com.gemstone.gemfire.cache.query.*;
 import com.gemstone.gemfire.pdx.JSONFormatter;
+import com.gemstone.gemfire.pdx.ReflectionBasedAutoSerializer;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -17,11 +19,12 @@ import java.util.Properties;
 /**
  * Created by Charlie Black on 12/21/16.
  */
+
 public class Destination {
 
     public static final String DEFAULT_PORT = "50505";
     ClientCache clientCache;
-
+    private ObjectMapper mapper = new ObjectMapper();
     private void setupGemFire(String[] locatorInfo) throws IOException, CqException, CqExistsException, NameResolutionException, TypeMismatchException, QueryInvocationTargetException, FunctionDomainException {
 
         Properties properties = new Properties();
@@ -32,13 +35,14 @@ public class Destination {
         factory.setPoolPRSingleHopEnabled(true);
         factory.set("name", "dest");
         factory.set("statistic-archive-file", "dest.gfs");
+        factory.setPdxReadSerialized(true);
+        factory.setPdxSerializer(new ReflectionBasedAutoSerializer("com.cdk.dmg.changeset.model.*"));
 
         clientCache = factory.create();
         ToolBox.addTimerForPdxTypeMetrics(clientCache);
     }
 
     private void setupServerSocket(int port) throws IOException {
-
         ServerSocket serverSocket = new ServerSocket(port);
         while (true) {
             Socket socket = serverSocket.accept();
@@ -72,22 +76,26 @@ public class Destination {
                 System.out.println("regionName = " + regionName);
                 while (true) {
                     Action action = (Action) objectInputStream.readObject();
-                    if (action.isPut()) {
-                        Object value = action.getValue();
-                        if (action.isPDXInstance()) {
-                            try {
+                    try {
+                        if (action.isPut()) {
+                            Object value = action.getValue();
+                            if (action.isPDXInstance()) {
                                 value = JSONFormatter.fromJSON((String) value);
-                            } catch (Exception e) {
-                                // to log or not to log that is the question.
-                                e.printStackTrace();
+                            } else {
+                                value = mapper.readValue((String) value, action.getClassName());
                             }
+                            region.put(action.getKey(), value);
+                        } else {
+                            region.remove(action.getKey());
                         }
-                        region.put(action.getKey(), value);
-                    } else {
-                        region.remove(action.getKey());
+                    } catch (Exception e) {
+                        // to log or not to log that is the question.
+                        System.out.println("WARN: Data NOT copied for the key " + action.getKey() + " from region " + regionName);
+                        e.printStackTrace();
                     }
                 }
             } catch (Exception e) {
+
                 e.printStackTrace();
             }
         }

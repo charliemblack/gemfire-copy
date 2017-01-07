@@ -11,6 +11,7 @@ public class Action implements Serializable{
     private Object value;
     private boolean isPut = true;
     private boolean isPDXInstance = false;
+    private Class className;
 
     public Action(Object key, Object value, boolean isPut) {
         this.key = key;
@@ -44,6 +45,7 @@ public class Action implements Serializable{
         this.value = value;
     }
 
+
     public boolean isPut() {
         return isPut;
     }
@@ -58,5 +60,13 @@ public class Action implements Serializable{
 
     public void setPDXInstance(boolean PDXInstance) {
         isPDXInstance = PDXInstance;
+    }
+
+    public Class getClassName() {
+        return className;
+    }
+
+    public void setClassName(Class className) {
+        this.className = className;
     }
 }
