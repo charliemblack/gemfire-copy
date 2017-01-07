@@ -34,6 +34,8 @@ sourceCompatibility = 1.8
 targetCompatibility = 1.8
 repositories {
     maven { url "file:${rootDir}/localMavenRepo" }
+    maven { url 'http://artifactory.cobalt.com/artifactory/libs-release' }
+    maven { url 'http://artifactory.cobalt.com/artifactory/libs-snapshot' }
     maven { url 'http://download.osgeo.org/webdav/geotools' }
     maven { url 'https://repo.spring.io/libs-release' }
     maven { url 'https://repo.spring.io/libs-milestone' }
@@ -43,5 +45,5 @@ repositories {
 }
 dependencies {
     compile "com.gemstone.gemfire:gemfire:$gemfireVersion"
+    compile "com.cdk.dmg.services.graph-data:change-set-api:1.0.565"
 }
-
