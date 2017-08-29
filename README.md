@@ -30,6 +30,10 @@ Launching the destination client:
 ```
 voltron:bin cblack$ ./destination.sh locator=localhost[10344] destinationPort=50505
 ```
+On the destination we can have a region prefix to enable testing in different environments.  
+```
+voltron:bin cblack$ ./destination.sh locator=localhost[10344] destinationPort=50505 prefix=SomePrefix_
+```
 
 Launching the source client:
 ```

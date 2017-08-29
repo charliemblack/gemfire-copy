@@ -21,12 +21,18 @@ public class Destination {
 
     public static final String DEFAULT_PORT = "50505";
     ClientCache clientCache;
+    private String regionPrefix;
+
+    public Destination(String regionPrefix) {
+        this.regionPrefix = regionPrefix;
+    }
 
     public static void main(String[] args) throws TypeMismatchException, CqException, IOException, FunctionDomainException, QueryInvocationTargetException, NameResolutionException, CqExistsException {
         String locator = "localhost[10334]";
         String port = DEFAULT_PORT;
         String userName = null;
         String password = null;
+        String regionPrefix = null;
         if (args.length > 0) {
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -38,9 +44,11 @@ public class Destination {
                     userName = arg.substring(arg.indexOf("=") + 1, arg.length());
                 } else if (arg.startsWith("password")) {
                     password = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("prefix")) {
+                    regionPrefix = arg.substring(arg.indexOf("=") + 1, arg.length());
                 }
             }
-            Destination destination = new Destination();
+            Destination destination = new Destination(regionPrefix);
             destination.setupGemFire(ToolBox.parseLocatorInfo(locator), userName, password);
             destination.setupServerSocket(Integer.parseInt(port));
         } else {
@@ -94,6 +102,9 @@ public class Destination {
         public void run() {
             try {
                 String regionName = (String) objectInputStream.readObject();
+                if (regionPrefix != null) {
+                    regionName = regionPrefix + regionName;
+                }
 
                 Region region = clientCache.getRegion(regionName);
                 if (region == null) {
