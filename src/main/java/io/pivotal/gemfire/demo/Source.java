@@ -45,12 +45,49 @@ public class Source {
         }, TimeUnit.SECONDS.toMillis(10), TimeUnit.SECONDS.toMillis(10));
     }
 
-    private void setupGemFire(String[] locatorInfo) throws IOException, CqException, CqExistsException, NameResolutionException, TypeMismatchException, QueryInvocationTargetException, FunctionDomainException {
+    public static void main(String[] args) throws TypeMismatchException, CqException, IOException, FunctionDomainException, QueryInvocationTargetException, NameResolutionException, CqExistsException {
+        String locator = "localhost[10334]";
+        String regions = "";
+        String destination = "localhost[50505]";
+        String userName = null;
+        String password = null;
+        if (args.length > 0) {
+            for (int i = 0; i < args.length; i++) {
+                String arg = args[i];
+                if (arg.startsWith("locator")) {
+                    locator = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("regions")) {
+                    regions = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("destination")) {
+                    destination = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("username")) {
+                    userName = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("password")) {
+                    password = arg.substring(arg.indexOf("=") + 1, arg.length());
+                }
+            }
+            Source source = new Source();
+            source.setDestinationInfo(ToolBox.parseLocatorInfo(destination));
+            source.setupGemFire(ToolBox.parseLocatorInfo(locator), userName, password);
+            for (String currRegion : regions.split(",")) {
+                source.setUpCQOnRegion(currRegion);
+            }
+        } else {
+            System.out.println("Please provide the following parameters: locator=hostname[port] regions=regionA,regionB <destination>=hostname[50505]");
+        }
+    }
+
+    private void setupGemFire(String[] locatorInfo, String userName, String password) throws IOException, CqException, CqExistsException, NameResolutionException, TypeMismatchException, QueryInvocationTargetException, FunctionDomainException {
         Properties properties = new Properties();
         properties.load(getClass().getResourceAsStream("/gemfire.properties"));
         ClientCacheFactory factory = new ClientCacheFactory(properties);
         factory.setPoolSubscriptionEnabled(true);
         factory.addPoolLocator(locatorInfo[0], Integer.parseInt(locatorInfo[1]));
+        if (userName != null && password != null) {
+            factory.set("security-client-auth-init", "io.pivotal.gemfire.demo.ClientAuthentication.create");
+            factory.set("security-username", userName);
+            factory.set("security-password", password);
+        }
         factory.set("name", "source");
         factory.set("statistic-archive-file", "source.gfs");
         clientCache = factory.create();
@@ -92,10 +129,10 @@ public class Source {
 
     private class RegionSource implements CqListener {
 
+        private final ReentrantLock lock = new ReentrantLock();
         private CountDownLatch countDownLatch = new CountDownLatch(1);
         private ObjectOutputStream objectOutputStream;
         private Region region;
-        private final ReentrantLock lock = new ReentrantLock();
 
         public RegionSource(Socket socket, Region region, String regionName) throws IOException {
             objectOutputStream = new ObjectOutputStream(new BufferedOutputStream(socket.getOutputStream()));
@@ -156,32 +193,6 @@ public class Source {
             } finally {
                 lock.unlock();
             }
-        }
-    }
-
-    public static void main(String[] args) throws TypeMismatchException, CqException, IOException, FunctionDomainException, QueryInvocationTargetException, NameResolutionException, CqExistsException {
-        String locator = "localhost[10334]";
-        String regions = "";
-        String destination = "localhost[50505]";
-        if (args.length > 0) {
-            for (int i = 0; i < args.length; i++) {
-                String arg = args[i];
-                if (arg.startsWith("locator")) {
-                    locator = arg.substring(arg.indexOf("=") + 1, arg.length());
-                } else if (arg.startsWith("regions")) {
-                    regions = arg.substring(arg.indexOf("=") + 1, arg.length());
-                } else if (arg.startsWith("destination")) {
-                    destination = arg.substring(arg.indexOf("=") + 1, arg.length());
-                }
-            }
-            Source source = new Source();
-            source.setDestinationInfo(ToolBox.parseLocatorInfo(destination));
-            source.setupGemFire(ToolBox.parseLocatorInfo(locator));
-            for (String currRegion : regions.split(",")) {
-                source.setUpCQOnRegion(currRegion);
-            }
-        } else {
-            System.out.println("Please provide the following parameters: locator=hostname[port] regions=regionA,regionB <destination>=hostname[50505]");
         }
     }
 }

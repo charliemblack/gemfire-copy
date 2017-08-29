@@ -22,7 +22,33 @@ public class Destination {
     public static final String DEFAULT_PORT = "50505";
     ClientCache clientCache;
 
-    private void setupGemFire(String[] locatorInfo) throws IOException, CqException, CqExistsException, NameResolutionException, TypeMismatchException, QueryInvocationTargetException, FunctionDomainException {
+    public static void main(String[] args) throws TypeMismatchException, CqException, IOException, FunctionDomainException, QueryInvocationTargetException, NameResolutionException, CqExistsException {
+        String locator = "localhost[10334]";
+        String port = DEFAULT_PORT;
+        String userName = null;
+        String password = null;
+        if (args.length > 0) {
+            for (int i = 0; i < args.length; i++) {
+                String arg = args[i];
+                if (arg.startsWith("locator")) {
+                    locator = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("destinationPort")) {
+                    port = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("username")) {
+                    userName = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("password")) {
+                    password = arg.substring(arg.indexOf("=") + 1, arg.length());
+                }
+            }
+            Destination destination = new Destination();
+            destination.setupGemFire(ToolBox.parseLocatorInfo(locator), userName, password);
+            destination.setupServerSocket(Integer.parseInt(port));
+        } else {
+            System.out.println("Please provide the following parameters: locator=hostname[port] <destinationPort>=50505");
+        }
+    }
+
+    private void setupGemFire(String[] locatorInfo, String userName, String password) throws IOException, CqException, CqExistsException, NameResolutionException, TypeMismatchException, QueryInvocationTargetException, FunctionDomainException {
 
         Properties properties = new Properties();
         properties.load(getClass().getResourceAsStream("/gemfire.properties"));
@@ -30,6 +56,11 @@ public class Destination {
         factory.setPdxReadSerialized(false);
         factory.addPoolLocator(locatorInfo[0], Integer.parseInt(locatorInfo[1]));
         factory.setPoolPRSingleHopEnabled(true);
+        if (userName != null && password != null) {
+            factory.set("security-client-auth-init", "io.pivotal.gemfire.demo.ClientAuthentication.create");
+            factory.set("security-username", userName);
+            factory.set("security-password", password);
+        }
         factory.set("name", "dest");
         factory.set("statistic-archive-file", "dest.gfs");
 
@@ -49,7 +80,6 @@ public class Destination {
             }
         }
     }
-
 
     //protocol is region|action|action|........
     private class SocketReader implements Runnable {
@@ -90,26 +120,6 @@ public class Destination {
             } catch (Exception e) {
                 e.printStackTrace();
             }
-        }
-    }
-
-    public static void main(String[] args) throws TypeMismatchException, CqException, IOException, FunctionDomainException, QueryInvocationTargetException, NameResolutionException, CqExistsException {
-        String locator = "localhost[10334]";
-        String port = DEFAULT_PORT;
-        if (args.length > 0) {
-            for (int i = 0; i < args.length; i++) {
-                String arg = args[i];
-                if (arg.startsWith("locator")) {
-                    locator = arg.substring(arg.indexOf("=") + 1, arg.length());
-                } else if (arg.startsWith("destinationPort")) {
-                    port = arg.substring(arg.indexOf("=") + 1, arg.length());
-                }
-            }
-            Destination destination = new Destination();
-            destination.setupGemFire(ToolBox.parseLocatorInfo(locator));
-            destination.setupServerSocket(Integer.parseInt(port));
-        } else {
-            System.out.println("Please provide the following parameters: locator=hostname[port] <destinationPort>=50505");
         }
     }
 }

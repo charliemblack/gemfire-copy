@@ -16,7 +16,7 @@
 
 ext {
     version = '1.0.0.SNAPSHOT'
-    gemfireVersion = '8.2.2'
+    gemfireVersion = '8.2.6'
 }
 
 description = 'Gemfire from one grid to another via plain old socket'

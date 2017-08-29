@@ -35,6 +35,11 @@ Launching the source client:
 ```
 voltron:bin cblack$ ./source.sh locator=localhost[10334] regions=TestData,OtherRegion destination=localhost[50505]
 ```
+If we have authentication turned on we can pass in the credentials by appending the username and password.
+
+```
+voltron:bin cblack$ ./source.sh locator=localhost[10334] regions=TestData,OtherRegion destination=localhost[50505] username=someUser password=1234567
+```
 
 From the source side the application will output on occasion a time stamp and some region stats.   Using this data we can compare the stats with the destination to see where we are at with the copying process.
 
