@@ -106,7 +106,7 @@ public class Source {
         RegionSource regionSource = new RegionSource(openSocket(), region, regionName);
         cqAttributesFactory.addCqListener(regionSource);
 
-        CqQuery cq = queryService.newCq("CopyCQ_" + regionName, "select * from /" + regionName, cqAttributesFactory.create());
+        CqQuery cq = queryService.newCq("CopyCQ_" + regionName, "select * from /" + regionName + " n", cqAttributesFactory.create());
         CqResults results = cq.executeWithInitialResults();
         for (Object o : results.asList()) {
             Struct s = (Struct) o;
