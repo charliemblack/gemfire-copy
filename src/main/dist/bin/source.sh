@@ -8,8 +8,8 @@
 
 # Add default JVM options here. You can also use JAVA_OPTS and  to pass JVM options to this script.
 
-DEFAULT_JVM_OPTS="-Xmx1g"
-DEFAULT_JVM_OPTS="$DEFAULT_JVM_OPTS -Xms1g"
+DEFAULT_JVM_OPTS="-Xmx3g"
+DEFAULT_JVM_OPTS="$DEFAULT_JVM_OPTS -Xms3g"
 DEFAULT_JVM_OPTS="$DEFAULT_JVM_OPTS -XX:+UseParNewGC"
 DEFAULT_JVM_OPTS="$DEFAULT_JVM_OPTS -XX:+UseConcMarkSweepGC"
 DEFAULT_JVM_OPTS="$DEFAULT_JVM_OPTS -XX:CMSInitiatingOccupancyFraction=50"

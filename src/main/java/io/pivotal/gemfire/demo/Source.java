@@ -129,6 +129,7 @@ public class Source {
             objectOutputStream = new DataOutputStream(socket.getOutputStream());
             //Not possible to have another thread accessing the stream at this point since we are still in the constructor
             objectOutputStream.writeUTF(regionName);
+            objectOutputStream.flush();
             this.region = region;
         }
 
