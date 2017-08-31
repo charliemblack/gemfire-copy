@@ -113,12 +113,7 @@ public class Destination {
                 }
                 System.out.println("regionName = " + regionName);
                 while (true) {
-                    int numBytes = DataSerializer.readPrimitiveInt(objectInputStream);
-                    byte[] buffer = new byte[numBytes];
-
-                    objectInputStream.read(buffer);
-                    DataInputStream bais = new DataInputStream(new ByteArrayInputStream(buffer));
-                    Action action = (Action) DataSerializer.readObject(bais);
+                    Action action = (Action) DataSerializer.readObject(objectInputStream);
                     if (action.isPut()) {
                         Object value = action.getValue();
                         if (action.isPDXInstance()) {
@@ -127,8 +122,6 @@ public class Destination {
                             } catch (Exception e) {
                                 // to log or not to log that is the question.
                                 e.printStackTrace();
-                                System.out.println("buffer.length = " + buffer.length);
-                                System.out.println("new String(buffer) = " + new String(buffer));
                                 value = null;
                             }
                         }

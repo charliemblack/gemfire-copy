@@ -17,6 +17,7 @@ import com.gemstone.gemfire.pdx.JSONFormatter;
 import com.gemstone.gemfire.pdx.PdxInstance;
 import com.google.common.collect.Iterables;
 
+import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
@@ -179,10 +180,7 @@ public class Source {
 
         public void write(Object object) throws IOException {
             HeapDataOutputStream hdos = new HeapDataOutputStream(Version.CURRENT);
-            DataSerializer.writeObject(object, hdos);
-            byte[] buffer = hdos.toByteArray();
-            DataSerializer.writePrimitiveInt(buffer.length, objectOutputStream);
-            objectOutputStream.write(buffer);
+            hdos.sendTo((DataOutput) objectOutputStream);
         }
     }
 }
