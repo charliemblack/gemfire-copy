@@ -102,7 +102,7 @@ public class Destination {
         @Override
         public void run() {
             try {
-                String regionName = objectInputStream.readUTF();
+                String regionName = DataSerializer.readString(objectInputStream);
                 if (regionPrefix != null) {
                     regionName = regionPrefix + regionName;
                 }
