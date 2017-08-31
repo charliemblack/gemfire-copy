@@ -121,7 +121,6 @@ public class Source {
             }
         }
         regionSourceSet.add(regionSource);
-        regionSource.countDownLatch.countDown();
         System.out.println("done with regionName = " + regionName);
     }
 
@@ -137,7 +136,6 @@ public class Source {
     private class MyCacheListener extends CacheListenerAdapter {
 
         private final ReentrantLock lock = new ReentrantLock();
-        private CountDownLatch countDownLatch = new CountDownLatch(1);
         private ObjectOutputStream objectOutputStream;
         private Region region;
 
@@ -157,7 +155,6 @@ public class Source {
         @Override
         public void afterUpdate(EntryEvent entryEvent) {
             try {
-                countDownLatch.await();
                 Action action = new Action(entryEvent.getKey(), entryEvent.getNewValue());
                 action.setPut(true);
                 send(action);
@@ -174,7 +171,6 @@ public class Source {
         @Override
         public void afterDestroy(EntryEvent entryEvent) {
             try {
-                countDownLatch.await();
                 Action action = new Action(entryEvent.getKey(), entryEvent.getNewValue());
                 action.setPut(false);
                 send(action);
