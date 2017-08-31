@@ -99,6 +99,7 @@ public class Source {
     private void setUpCQOnRegion(String regionName) throws CqException, CqExistsException, RegionNotFoundException, IOException {
 
         Region region = clientCache.getRegion(regionName);
+
         if (region == null) {
             ClientRegionFactory clientRegionFactory = clientCache.createClientRegionFactory(ClientRegionShortcut.PROXY);
             region = clientRegionFactory.create(regionName);
@@ -114,11 +115,7 @@ public class Source {
         Iterable<Collection>  partitionedKeySet = Iterables.partition(keySetOnServer, 100);
         for (Collection keySubSet : partitionedKeySet) {
             Map<Object, Object> bulk = region.getAll(keySubSet);
-            System.out.println("bulk.size() = " + bulk.size());
-            for(Map.Entry entry : bulk.entrySet()){
-                Action action = new Action(entry.getKey(), entry.getValue(), true);
-                regionSource.send(action);
-            }
+            regionSource.flush();
         }
         regionSourceSet.add(regionSource);
         System.out.println("done with regionName = " + regionName);
@@ -180,16 +177,20 @@ public class Source {
         }
 
         public void send(Action action) throws IOException {
-            if (action.getValue() instanceof PdxInstance) {
-                action.setPDXInstance(true);
-                action.setValue(JSONFormatter.toJSON((PdxInstance) action.getValue()));
-            }
-            lock.lock();
             try {
-                // need to protect the stream just incase the flush from the other thread has a race
-                objectOutputStream.writeObject(action);
-            } finally {
-                lock.unlock();
+                if (action.getValue() instanceof PdxInstance) {
+                    action.setPDXInstance(true);
+                    action.setValue(JSONFormatter.toJSON((PdxInstance) action.getValue()));
+                }
+                lock.lock();
+                try {
+                    // need to protect the stream just incase the flush from the other thread has a race
+                    objectOutputStream.writeObject(action);
+                } finally {
+                    lock.unlock();
+                }
+            } catch (Exception e) {
+                System.out.println("Had error with " + action.getKey() + " - " + action.getValue());
             }
         }
 
