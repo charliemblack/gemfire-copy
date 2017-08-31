@@ -108,9 +108,13 @@ public class Source {
         MyCacheListener regionSource = new MyCacheListener(openSocket(), region, regionName);
         region.getAttributesMutator().addCacheListener(regionSource);
         region.registerInterest("ALL_KEYS", InterestResultPolicy.KEYS);
-        Iterable<List>  partitionedKeySet = Iterables.partition(region.keySetOnServer(), 100);
-        for (List keySubSet : partitionedKeySet) {
+        Collection keySetOnServer = region.keySetOnServer();
+        System.out.println("keySetOnServer.size() = " + keySetOnServer.size());
+
+        Iterable<Collection>  partitionedKeySet = Iterables.partition(keySetOnServer, 100);
+        for (Collection keySubSet : partitionedKeySet) {
             Map<Object, Object> bulk = region.getAll(keySubSet);
+            System.out.println("bulk.size() = " + bulk.size());
             for(Map.Entry entry : bulk.entrySet()){
                 Action action = new Action(entry.getKey(), entry.getValue(), true);
                 regionSource.send(action);
