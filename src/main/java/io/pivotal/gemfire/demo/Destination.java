@@ -1,5 +1,6 @@
 package io.pivotal.gemfire.demo;
 
+import com.gemstone.gemfire.DataSerializer;
 import com.gemstone.gemfire.cache.Region;
 import com.gemstone.gemfire.cache.client.ClientCache;
 import com.gemstone.gemfire.cache.client.ClientCacheFactory;
@@ -7,9 +8,7 @@ import com.gemstone.gemfire.cache.client.ClientRegionShortcut;
 import com.gemstone.gemfire.cache.query.*;
 import com.gemstone.gemfire.pdx.JSONFormatter;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.ObjectInputStream;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Properties;
@@ -92,16 +91,16 @@ public class Destination {
     //protocol is region|action|action|........
     private class SocketReader implements Runnable {
 
-        private ObjectInputStream objectInputStream;
+        private DataInputStream objectInputStream;
 
         public SocketReader(Socket socket) throws IOException {
-            objectInputStream = new ObjectInputStream(new BufferedInputStream(socket.getInputStream()));
+            objectInputStream = new DataInputStream(socket.getInputStream());
         }
 
         @Override
         public void run() {
             try {
-                String regionName = (String) objectInputStream.readObject();
+                String regionName = objectInputStream.readUTF();
                 if (regionPrefix != null) {
                     regionName = regionPrefix + regionName;
                 }
@@ -112,7 +111,12 @@ public class Destination {
                 }
                 System.out.println("regionName = " + regionName);
                 while (true) {
-                    Action action = (Action) objectInputStream.readObject();
+                    int numBytes = objectInputStream.readInt();
+                    byte [] buffer = new byte[numBytes];
+
+                    objectInputStream.read(buffer);
+                    DataInputStream bais = new DataInputStream(new ByteArrayInputStream(buffer));
+                    Action action = (Action) DataSerializer.readObject(bais);
                     if (action.isPut()) {
                         Object value = action.getValue();
                         if (action.isPDXInstance()) {
