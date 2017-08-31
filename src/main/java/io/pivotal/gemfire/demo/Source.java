@@ -138,7 +138,7 @@ public class Source {
 
         public MyCacheListener(Socket socket, Region region, String regionName) throws IOException {
 
-            objectOutputStream = new ObjectOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+            objectOutputStream = new ObjectOutputStream(socket.getOutputStream());
             //Not possible to have another thread accessing the stream at this point since we are still in the constructor
             objectOutputStream.writeObject(regionName);
             this.region = region;
