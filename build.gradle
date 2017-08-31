@@ -17,6 +17,8 @@
 ext {
     version = '1.0.0.SNAPSHOT'
     gemfireVersion = '8.2.6'
+    junitVersion = '4.12'
+    guavaVersion = '19.0'
 }
 
 description = 'Gemfire from one grid to another via plain old socket'
@@ -42,6 +44,8 @@ repositories {
     mavenCentral()
 }
 dependencies {
+    compile "com.google.guava:guava:$guavaVersion"
     compile "com.gemstone.gemfire:gemfire:$gemfireVersion"
+    testCompile "junit:junit:$junitVersion"
 }
 

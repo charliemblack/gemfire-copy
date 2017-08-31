@@ -1,23 +1,22 @@
 package io.pivotal.gemfire.demo;
 
-import com.gemstone.gemfire.cache.Operation;
-import com.gemstone.gemfire.cache.Region;
+import com.gemstone.gemfire.cache.*;
 import com.gemstone.gemfire.cache.client.ClientCache;
 import com.gemstone.gemfire.cache.client.ClientCacheFactory;
+import com.gemstone.gemfire.cache.client.ClientRegionFactory;
 import com.gemstone.gemfire.cache.client.ClientRegionShortcut;
 import com.gemstone.gemfire.cache.query.*;
+import com.gemstone.gemfire.cache.util.CacheListenerAdapter;
 import com.gemstone.gemfire.internal.concurrent.ConcurrentHashSet;
 import com.gemstone.gemfire.pdx.JSONFormatter;
 import com.gemstone.gemfire.pdx.PdxInstance;
+import com.google.common.collect.Iterables;
 
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
-import java.util.Properties;
-import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -28,7 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class Source {
     private ClientCache clientCache;
     private String[] destinationInfo;
-    private Set<RegionSource> regionSourceSet = new ConcurrentHashSet<>();
+    private Set<MyCacheListener> regionSourceSet = new ConcurrentHashSet<>();
 
     public Source() {
         new Timer().schedule(new TimerTask() {
@@ -81,8 +80,10 @@ public class Source {
         Properties properties = new Properties();
         properties.load(getClass().getResourceAsStream("/gemfire.properties"));
         ClientCacheFactory factory = new ClientCacheFactory(properties);
+
         factory.setPoolSubscriptionEnabled(true);
         factory.addPoolLocator(locatorInfo[0], Integer.parseInt(locatorInfo[1]));
+
         if (userName != null && password != null) {
             factory.set("security-client-auth-init", "io.pivotal.gemfire.demo.ClientAuthentication.create");
             factory.set("security-username", userName);
@@ -94,24 +95,26 @@ public class Source {
         ToolBox.addTimerForPdxTypeMetrics(clientCache);
     }
 
+
     private void setUpCQOnRegion(String regionName) throws CqException, CqExistsException, RegionNotFoundException, IOException {
 
         Region region = clientCache.getRegion(regionName);
         if (region == null) {
-            region = clientCache.createClientRegionFactory(ClientRegionShortcut.PROXY).create(regionName);
+            ClientRegionFactory clientRegionFactory = clientCache.createClientRegionFactory(ClientRegionShortcut.PROXY);
+            region = clientRegionFactory.create(regionName);
         }
 
-        QueryService queryService = clientCache.getQueryService();
-        final CqAttributesFactory cqAttributesFactory = new CqAttributesFactory();
-        RegionSource regionSource = new RegionSource(openSocket(), region, regionName);
-        cqAttributesFactory.addCqListener(regionSource);
 
-        CqQuery cq = queryService.newCq("CopyCQ_" + regionName, "select * from /" + regionName + " n", cqAttributesFactory.create());
-        CqResults results = cq.executeWithInitialResults();
-        for (Object o : results.asList()) {
-            Struct s = (Struct) o;
-            Action action = new Action(s.get("key"), s.get("value"), true);
-            regionSource.send(action);
+        MyCacheListener regionSource = new MyCacheListener(openSocket(), region, regionName);
+        region.getAttributesMutator().addCacheListener(regionSource);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.KEYS);
+        Iterable<List>  partitionedKeySet = Iterables.partition(region.keySetOnServer(), 100);
+        for (List keySubSet : partitionedKeySet) {
+            Map<Object, Object> bulk = region.getAll(keySubSet);
+            for(Map.Entry entry : bulk.entrySet()){
+                Action action = new Action(entry.getKey(), entry.getValue(), true);
+                regionSource.send(action);
+            }
         }
         regionSourceSet.add(regionSource);
         regionSource.countDownLatch.countDown();
@@ -127,14 +130,15 @@ public class Source {
         return socket;
     }
 
-    private class RegionSource implements CqListener {
+    private class MyCacheListener extends CacheListenerAdapter {
 
         private final ReentrantLock lock = new ReentrantLock();
         private CountDownLatch countDownLatch = new CountDownLatch(1);
         private ObjectOutputStream objectOutputStream;
         private Region region;
 
-        public RegionSource(Socket socket, Region region, String regionName) throws IOException {
+        public MyCacheListener(Socket socket, Region region, String regionName) throws IOException {
+
             objectOutputStream = new ObjectOutputStream(new BufferedOutputStream(socket.getOutputStream()));
             //Not possible to have another thread accessing the stream at this point since we are still in the constructor
             objectOutputStream.writeObject(regionName);
@@ -142,33 +146,37 @@ public class Source {
         }
 
         @Override
-        public void onEvent(CqEvent cqEvent) {
+        public void afterCreate(EntryEvent entryEvent) {
+            afterUpdate(entryEvent);
+        }
+
+        @Override
+        public void afterUpdate(EntryEvent entryEvent) {
             try {
                 countDownLatch.await();
-                Action action = new Action(cqEvent.getKey(), cqEvent.getNewValue());
-                Operation operation = cqEvent.getBaseOperation();
-                if (operation.isUpdate() || operation.isCreate()) {
-                    action.setPut(true);
-                    send(action);
-                } else if (operation.isDestroy()) {
-                    action.setPut(false);
-                    send(action);
-                } else {
-                    System.out.println("some other event operation name =  " + operation.toString());
-                }
+                Action action = new Action(entryEvent.getKey(), entryEvent.getNewValue());
+                action.setPut(true);
+                send(action);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
         @Override
-        public void onError(CqEvent cqEvent) {
-
+        public void afterInvalidate(EntryEvent entryEvent) {
+            afterDestroy(entryEvent);
         }
 
         @Override
-        public void close() {
-
+        public void afterDestroy(EntryEvent entryEvent) {
+            try {
+                countDownLatch.await();
+                Action action = new Action(entryEvent.getKey(), entryEvent.getNewValue());
+                action.setPut(false);
+                send(action);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
 
         public void send(Action action) throws IOException {
