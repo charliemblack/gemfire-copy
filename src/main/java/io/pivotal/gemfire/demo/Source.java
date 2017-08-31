@@ -180,8 +180,9 @@ public class Source {
         public void write(Object object) throws IOException {
             HeapDataOutputStream hdos = new HeapDataOutputStream(Version.CURRENT);
             DataSerializer.writeObject(object, hdos);
-            objectOutputStream.writeInt(hdos.size());
-            objectOutputStream.write(hdos.toByteArray());
+            byte[] buffer = hdos.toByteArray();
+            objectOutputStream.writeInt(buffer.length);
+            objectOutputStream.write(buffer);
         }
     }
 }
