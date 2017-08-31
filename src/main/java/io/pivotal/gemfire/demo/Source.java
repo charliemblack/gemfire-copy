@@ -181,7 +181,7 @@ public class Source {
             HeapDataOutputStream hdos = new HeapDataOutputStream(Version.CURRENT);
             DataSerializer.writeObject(object, hdos);
             byte[] buffer = hdos.toByteArray();
-            objectOutputStream.writeInt(buffer.length);
+            DataSerializer.writePrimitiveInt(buffer.length, objectOutputStream);
             objectOutputStream.write(buffer);
         }
     }
