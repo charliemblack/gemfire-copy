@@ -8,11 +8,12 @@ import com.gemstone.gemfire.cache.client.ClientCache;
 import com.gemstone.gemfire.cache.client.ClientCacheFactory;
 import com.gemstone.gemfire.cache.client.ClientRegionFactory;
 import com.gemstone.gemfire.cache.client.ClientRegionShortcut;
-import com.gemstone.gemfire.cache.query.*;
+import com.gemstone.gemfire.cache.query.CqException;
+import com.gemstone.gemfire.cache.query.CqExistsException;
+import com.gemstone.gemfire.cache.query.RegionNotFoundException;
 import com.gemstone.gemfire.cache.util.CacheListenerAdapter;
 import com.gemstone.gemfire.internal.HeapDataOutputStream;
 import com.gemstone.gemfire.internal.Version;
-import com.gemstone.gemfire.internal.concurrent.ConcurrentHashSet;
 import com.gemstone.gemfire.pdx.JSONFormatter;
 import com.gemstone.gemfire.pdx.PdxInstance;
 import com.google.common.collect.Iterables;
@@ -21,8 +22,11 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * Created by Charlie Black on 12/22/16.
@@ -30,15 +34,15 @@ import java.util.concurrent.TimeUnit;
 public class Source {
     private ClientCache clientCache;
     private String[] destinationInfo;
-    private Set<MyCacheListener> regionSourceSet = new ConcurrentHashSet<>();
 
     public Source() {
     }
 
-    public static void main(String[] args) throws TypeMismatchException, CqException, IOException, FunctionDomainException, QueryInvocationTargetException, NameResolutionException, CqExistsException {
+    public static void main(String[] args) throws Exception {
         String locator = "localhost[10334]";
         String regions = "";
         String destination = "localhost[50505]";
+        int workers = 1;
         String userName = null;
         String password = null;
         if (args.length > 0) {
@@ -54,24 +58,28 @@ public class Source {
                     userName = arg.substring(arg.indexOf("=") + 1, arg.length());
                 } else if (arg.startsWith("password")) {
                     password = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("workers")) {
+                    workers = Integer.parseInt(arg.substring(arg.indexOf("=") + 1, arg.length()));
                 }
+
             }
             Source source = new Source();
             source.setDestinationInfo(ToolBox.parseLocatorInfo(destination));
             source.setupGemFire(ToolBox.parseLocatorInfo(locator), userName, password);
             for (String currRegion : regions.split(",")) {
-                source.setUpCQOnRegion(currRegion);
+                source.setUpCQOnRegion(currRegion, workers);
             }
+            CountDownLatch countDownLatch = new CountDownLatch(1);
+            countDownLatch.await();
         } else {
             System.out.println("Please provide the following parameters: locator=hostname[port] regions=regionA,regionB <destination>=hostname[50505]");
         }
     }
 
-    private void setupGemFire(String[] locatorInfo, String userName, String password) throws IOException, CqException, CqExistsException, NameResolutionException, TypeMismatchException, QueryInvocationTargetException, FunctionDomainException {
+    private void setupGemFire(String[] locatorInfo, String userName, String password) throws Exception {
         Properties properties = new Properties();
         properties.load(getClass().getResourceAsStream("/gemfire.properties"));
         ClientCacheFactory factory = new ClientCacheFactory(properties);
-
         factory.setPoolSubscriptionEnabled(true);
         factory.addPoolLocator(locatorInfo[0], Integer.parseInt(locatorInfo[1]));
 
@@ -87,7 +95,7 @@ public class Source {
     }
 
 
-    private void setUpCQOnRegion(String regionName) throws CqException, CqExistsException, RegionNotFoundException, IOException {
+    private void setUpCQOnRegion(String regionName, int workers) throws CqException, CqExistsException, RegionNotFoundException, IOException {
 
         Region region = clientCache.getRegion(regionName);
 
@@ -97,18 +105,16 @@ public class Source {
         }
 
 
-        MyCacheListener regionSource = new MyCacheListener(openSocket(), region, regionName);
+        MyCacheListener regionSource = new MyCacheListener(openSocket(), regionName);
         region.getAttributesMutator().addCacheListener(regionSource);
         region.registerInterest("ALL_KEYS", InterestResultPolicy.KEYS);
-        Collection keySetOnServer = region.keySetOnServer();
+        Collection<Object> keySetOnServer = region.keySetOnServer();
         System.out.println("keySetOnServer.size() = " + keySetOnServer.size());
-
-        Iterable<Collection> partitionedKeySet = Iterables.partition(keySetOnServer, 100);
-        for (Collection keySubSet : partitionedKeySet) {
-            Map<Object, Object> bulk = region.getAll(keySubSet);
+        Iterable<List<Object>> partitionedByWorkersKeySet = Iterables.partition(keySetOnServer, keySetOnServer.size() / workers);
+        for (List<Object> keys : partitionedByWorkersKeySet) {
+            System.out.println("starting work on keys.size() " + keys.size() + " for region " + regionName);
+            new Thread(new PartitionRunner(keys, region)).start();
         }
-        regionSourceSet.add(regionSource);
-        System.out.println("done with regionName = " + regionName);
     }
 
     public void setDestinationInfo(String[] destinationInfo) {
@@ -120,17 +126,42 @@ public class Source {
         return socket;
     }
 
-    private class MyCacheListener extends CacheListenerAdapter {
+    private class PartitionRunner implements Runnable {
 
-        private DataOutputStream objectOutputStream;
+        private Collection keys;
         private Region region;
 
-        public MyCacheListener(Socket socket, Region region, String regionName) throws IOException {
+        public PartitionRunner(Collection keys, Region region) {
+            this.keys = keys;
+            this.region = region;
+        }
+
+        @Override
+        public void run() {
+
+            Iterable<Collection> partitionedKeySet = Iterables.partition(keys, 100);
+            int count = keys.size();
+            for (Collection keySubSet : partitionedKeySet) {
+                Map<Object, Object> bulk = region.getAll(keySubSet);
+                count -= bulk.size();
+                if (count % 1000 == 0) {
+                    System.out.println(count + " items left to transfer for region " + region.getName());
+                }
+            }
+            System.out.println(" Partition done with regionName = " + region.getName() + " key size " + keys.size());
+        }
+    }
+
+    private class MyCacheListener extends CacheListenerAdapter {
+
+        private Object writeLock = new Object();
+        private DataOutputStream objectOutputStream;
+
+        public MyCacheListener(Socket socket, String regionName) throws IOException {
 
             objectOutputStream = new DataOutputStream(socket.getOutputStream());
             //Not possible to have another thread accessing the stream at this point since we are still in the constructor
             DataSerializer.writeString(regionName, objectOutputStream);
-            this.region = region;
         }
 
         @Override
@@ -165,7 +196,7 @@ public class Source {
             }
         }
 
-        public void send(Action action) throws IOException {
+        private void send(Action action) throws IOException {
             try {
                 if (action.getValue() instanceof PdxInstance) {
                     action.setPDXInstance(true);
@@ -177,9 +208,13 @@ public class Source {
             }
         }
 
-        public void write(Object object) throws IOException {
+        private void write(Action object) throws IOException {
             HeapDataOutputStream hdos = new HeapDataOutputStream(Version.CURRENT);
-            hdos.sendTo((DataOutput) objectOutputStream);
+            DataSerializer.writeObject(object, hdos);
+            synchronized (writeLock) {
+                hdos.sendTo((DataOutput) objectOutputStream);
+                objectOutputStream.flush();
+            }
         }
     }
 }

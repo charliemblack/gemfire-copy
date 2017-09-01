@@ -8,12 +8,15 @@ import com.gemstone.gemfire.cache.client.ClientRegionShortcut;
 import com.gemstone.gemfire.cache.query.*;
 import com.gemstone.gemfire.pdx.JSONFormatter;
 
-import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Map;
 import java.util.Properties;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.*;
 
 /**
  * Created by Charlie Black on 12/21/16.
@@ -21,11 +24,26 @@ import java.util.Properties;
 public class Destination {
 
     public static final String DEFAULT_PORT = "50505";
-    ClientCache clientCache;
+    public static final int BULKSIZE = 100;
+    public static final long TIMEOUT = 1000;
+    private ClientCache clientCache;
+    private Executor executor;
     private String regionPrefix;
+    private ConcurrentLinkedQueue<SocketReader> socketReaders = new ConcurrentLinkedQueue<>();
 
-    public Destination(String regionPrefix) {
+    public Destination(String regionPrefix, int workerThreads) {
+        new Timer("FlushingTimer", true).schedule(new TimerTask() {
+            @Override
+            public void run() {
+                socketReaders.forEach(SocketReader::timedFlush);
+            }
+        }, TimeUnit.MILLISECONDS.toMillis(1000));
+
         this.regionPrefix = regionPrefix;
+
+        executor = new ThreadPoolExecutor(workerThreads, workerThreads,
+                0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(1024));
     }
 
     public static void main(String[] args) throws TypeMismatchException, CqException, IOException, FunctionDomainException, QueryInvocationTargetException, NameResolutionException, CqExistsException {
@@ -34,6 +52,8 @@ public class Destination {
         String userName = null;
         String password = null;
         String regionPrefix = null;
+        int workerthreads = 1;
+
         if (args.length > 0) {
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -47,9 +67,11 @@ public class Destination {
                     password = arg.substring(arg.indexOf("=") + 1, arg.length());
                 } else if (arg.startsWith("prefix")) {
                     regionPrefix = arg.substring(arg.indexOf("=") + 1, arg.length());
+                } else if (arg.startsWith("workerthreads")) {
+                    workerthreads = Integer.parseInt(arg.substring(arg.indexOf("=") + 1, arg.length()));
                 }
             }
-            Destination destination = new Destination(regionPrefix);
+            Destination destination = new Destination(regionPrefix, workerthreads);
             destination.setupGemFire(ToolBox.parseLocatorInfo(locator), userName, password);
             destination.setupServerSocket(Integer.parseInt(port));
         } else {
@@ -83,34 +105,41 @@ public class Destination {
         while (true) {
             Socket socket = serverSocket.accept();
             try {
-                new Thread(new SocketReader(socket)).start();
+                SocketReader socketReader = new SocketReader(socket);
+                new Thread(socketReader).start();
+                socketReaders.add(socketReader);
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
     }
 
+
     //protocol is region|action|action|........
     private class SocketReader implements Runnable {
 
+        private Object lock = new Object();
         private DataInputStream objectInputStream;
+        private Region<Object, Object> region;
+        private String regionName;
+        private long lastPush = System.currentTimeMillis();
+        private ConcurrentHashMap bulk = new ConcurrentHashMap();
 
         public SocketReader(Socket socket) throws IOException {
             objectInputStream = new DataInputStream(socket.getInputStream());
+            regionName = DataSerializer.readString(objectInputStream);
+            if (regionPrefix != null) {
+                regionName = regionPrefix + regionName;
+            }
+            region = clientCache.getRegion(regionName);
+            if (region == null) {
+                region = clientCache.createClientRegionFactory(ClientRegionShortcut.PROXY).create(regionName);
+            }
         }
 
         @Override
         public void run() {
             try {
-                String regionName = DataSerializer.readString(objectInputStream);
-                if (regionPrefix != null) {
-                    regionName = regionPrefix + regionName;
-                }
-
-                Region region = clientCache.getRegion(regionName);
-                if (region == null) {
-                    region = clientCache.createClientRegionFactory(ClientRegionShortcut.PROXY).create(regionName);
-                }
                 System.out.println("regionName = " + regionName);
                 while (true) {
                     Action action = (Action) DataSerializer.readObject(objectInputStream);
@@ -126,14 +155,45 @@ public class Destination {
                             }
                         }
                         if (value != null) {
-                            region.put(action.getKey(), value);
+                            put(action.getKey(), value);
                         }
                     } else {
+                        bulk.remove(action.getKey());
                         region.remove(action.getKey());
                     }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
+            }
+        }
+
+        private void timedFlush() {
+            if (lastPush + TIMEOUT < System.currentTimeMillis()) {
+                doBulkPut();
+            }
+        }
+
+        private void put(Object key, Object value) {
+            bulk.put(key, value);
+            if (bulk.size() >= BULKSIZE) {
+                doBulkPut();
+            }
+        }
+
+        private void doBulkPut() {
+            Map temp = null;
+            lastPush = System.currentTimeMillis();
+            synchronized (lock) {
+                if (!bulk.isEmpty()) {
+                    temp = bulk;
+                    bulk = new ConcurrentHashMap();
+                }
+            }
+            if (temp != null) {
+                Map finalTemp = temp;
+                executor.execute(() -> {
+                    region.putAll(finalTemp);
+                });
             }
         }
     }
