@@ -2,7 +2,7 @@ This sample copies data from one gemfire system to another over a TCP connection
 
 Data will only flow in one direction and for only the regions listed in the source command.   It is possible to run more then one source command if we are aggregating more then one system into a single GemFire system.   
 
-The source process uses a GemFire capability called CQ to receive the initial data set and then listen for any changes.   On the destination side the process just does single puts as data is sent from the source.
+The source process use bulk operations to get the originating grid.   On the destination side the process does bulk puts as data is sent from the source.
 
 How to build
 
