@@ -19,6 +19,7 @@ ext {
     gemfireVersion = '8.2.6'
     junitVersion = '4.12'
     guavaVersion = '19.0'
+    metricsVersion = '3.2.3'
 }
 
 description = 'Gemfire from one grid to another via plain old socket'
@@ -29,7 +30,7 @@ apply plugin: "idea"
 apply plugin: 'java'
 apply plugin: 'application'
 
-mainClassName="io.pivotal.gemfire.demo.ignoreme"
+mainClassName = "io.pivotal.gemfire.demo.ignoreme"
 
 group = 'io.pivotal'
 sourceCompatibility = 1.8
@@ -46,6 +47,8 @@ repositories {
 dependencies {
     compile "com.google.guava:guava:$guavaVersion"
     compile "com.gemstone.gemfire:gemfire:$gemfireVersion"
+    compile "io.dropwizard.metrics:metrics-core:$metricsVersion"
     testCompile "junit:junit:$junitVersion"
+    testCompile "org.mockito:mockito-core:2.+"
 }
 

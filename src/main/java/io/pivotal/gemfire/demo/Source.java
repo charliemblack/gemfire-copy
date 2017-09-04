@@ -1,31 +1,35 @@
+/*
+ * Copyright 2017 Charlie Black
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
 package io.pivotal.gemfire.demo;
 
-import com.gemstone.gemfire.DataSerializer;
-import com.gemstone.gemfire.cache.EntryEvent;
+import com.gemstone.gemfire.cache.CacheListener;
 import com.gemstone.gemfire.cache.InterestResultPolicy;
 import com.gemstone.gemfire.cache.Region;
 import com.gemstone.gemfire.cache.client.ClientCache;
-import com.gemstone.gemfire.cache.client.ClientCacheFactory;
 import com.gemstone.gemfire.cache.client.ClientRegionFactory;
 import com.gemstone.gemfire.cache.client.ClientRegionShortcut;
 import com.gemstone.gemfire.cache.query.CqException;
 import com.gemstone.gemfire.cache.query.CqExistsException;
 import com.gemstone.gemfire.cache.query.RegionNotFoundException;
-import com.gemstone.gemfire.cache.util.CacheListenerAdapter;
-import com.gemstone.gemfire.internal.HeapDataOutputStream;
-import com.gemstone.gemfire.internal.Version;
-import com.gemstone.gemfire.pdx.JSONFormatter;
-import com.gemstone.gemfire.pdx.PdxInstance;
 import com.google.common.collect.Iterables;
 
-import java.io.DataOutput;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -35,40 +39,30 @@ public class Source {
     private ClientCache clientCache;
     private String[] destinationInfo;
 
+    private Timer timer = new Timer();
+
     public Source() {
+
     }
 
     public static void main(String[] args) throws Exception {
-        String locator = "localhost[10334]";
-        String regions = "";
-        String destination = "localhost[50505]";
-        int workers = 1;
-        String userName = null;
-        String password = null;
         if (args.length > 0) {
-            for (int i = 0; i < args.length; i++) {
-                String arg = args[i];
-                if (arg.startsWith("locator")) {
-                    locator = arg.substring(arg.indexOf("=") + 1, arg.length());
-                } else if (arg.startsWith("regions")) {
-                    regions = arg.substring(arg.indexOf("=") + 1, arg.length());
-                } else if (arg.startsWith("destination")) {
-                    destination = arg.substring(arg.indexOf("=") + 1, arg.length());
-                } else if (arg.startsWith("username")) {
-                    userName = arg.substring(arg.indexOf("=") + 1, arg.length());
-                } else if (arg.startsWith("password")) {
-                    password = arg.substring(arg.indexOf("=") + 1, arg.length());
-                } else if (arg.startsWith("workers")) {
-                    workers = Integer.parseInt(arg.substring(arg.indexOf("=") + 1, arg.length()));
-                }
+            Properties appArgs = ToolBox.readArgs(args);
 
-            }
+            String locator = appArgs.getProperty("locator", "localhost[10334]");
+            String regions = appArgs.getProperty("regions", "");
+            String destination = appArgs.getProperty("destination", "localhost[50505]");
+            int workers = Integer.parseInt(appArgs.getProperty("workers", "1"));
+            String userName = appArgs.getProperty("username");
+            String password = appArgs.getProperty("password");
+
             Source source = new Source();
             source.setDestinationInfo(ToolBox.parseLocatorInfo(destination));
-            source.setupGemFire(ToolBox.parseLocatorInfo(locator), userName, password);
+            source.setClientCache(ToolBox.setupGemFire(ToolBox.parseLocatorInfo(locator), userName, password));
             for (String currRegion : regions.split(",")) {
-                source.setUpCQOnRegion(currRegion, workers);
+                source.setupEventListener(currRegion, workers);
             }
+            //We don't want the application to finish so just wait.
             CountDownLatch countDownLatch = new CountDownLatch(1);
             countDownLatch.await();
         } else {
@@ -76,66 +70,56 @@ public class Source {
         }
     }
 
-    private void setupGemFire(String[] locatorInfo, String userName, String password) throws Exception {
-        Properties properties = new Properties();
-        properties.load(getClass().getResourceAsStream("/gemfire.properties"));
-        ClientCacheFactory factory = new ClientCacheFactory(properties);
-        factory.setPoolSubscriptionEnabled(true);
-        factory.addPoolLocator(locatorInfo[0], Integer.parseInt(locatorInfo[1]));
 
-        if (userName != null && password != null) {
-            factory.set("security-client-auth-init", "io.pivotal.gemfire.demo.ClientAuthentication.create");
-            factory.set("security-username", userName);
-            factory.set("security-password", password);
-        }
-        factory.set("name", "source");
-        factory.set("statistic-archive-file", "source.gfs");
-        clientCache = factory.create();
-        ToolBox.addTimerForPdxTypeMetrics(clientCache);
-    }
+    @SuppressWarnings("unchecked")
+    private void setupEventListener(String regionName, int workers) throws CqException, CqExistsException, RegionNotFoundException, IOException {
 
-
-    private void setUpCQOnRegion(String regionName, int workers) throws CqException, CqExistsException, RegionNotFoundException, IOException {
-
-        Region region = clientCache.getRegion(regionName);
-
-        if (region == null) {
-            ClientRegionFactory clientRegionFactory = clientCache.createClientRegionFactory(ClientRegionShortcut.PROXY);
-            region = clientRegionFactory.create(regionName);
-        }
-
-
-        MyCacheListener regionSource = new MyCacheListener(openSocket(), regionName);
-        region.getAttributesMutator().addCacheListener(regionSource);
-        region.registerInterest("ALL_KEYS", InterestResultPolicy.KEYS);
-        Collection<Object> keySetOnServer = region.keySetOnServer();
+        Region region = getRegion(regionName);
+        Set<Object> keySetOnServer = region.keySetOnServer();
         System.out.println("keySetOnServer.size() = " + keySetOnServer.size());
-        Iterable<List<Object>> partitionedByWorkersKeySet = Iterables.partition(keySetOnServer, keySetOnServer.size() / workers);
-        for (List<Object> keys : partitionedByWorkersKeySet) {
-            System.out.println("starting work on keys.size() " + keys.size() + " for region " + regionName);
-            new Thread(new PartitionRunner(keys, region)).start();
+        if (!keySetOnServer.isEmpty()) {
+            int worker = 1;
+            for (List<Object> keys : Iterables.partition(keySetOnServer, keySetOnServer.size() / workers)) {
+                System.out.println("Starting worker " + worker + " on keys.size() " + keys.size() + " for region " + regionName);
+                new Thread(new GetAllInBatches(keys, region)).start();
+                worker++;
+            }
         }
     }
 
-    public void setDestinationInfo(String[] destinationInfo) {
+    @SuppressWarnings("unchecked")
+    private Region getRegion(String regionName) throws IOException {
+        ClientRegionFactory clientRegionFactory = clientCache.createClientRegionFactory(ClientRegionShortcut.PROXY);
+        CacheListener cacheLister = new SocketSenderCacheListener(openSocket(), regionName);
+        clientRegionFactory.addCacheListener(cacheLister);
+        Region region = clientRegionFactory.create(regionName);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.KEYS);
+        return region;
+    }
+
+    private void setDestinationInfo(String[] destinationInfo) {
         this.destinationInfo = destinationInfo;
     }
 
     private Socket openSocket() throws IOException {
-        Socket socket = new Socket(destinationInfo[0], Integer.parseInt(destinationInfo[1]));
-        return socket;
+        return new Socket(destinationInfo[0], Integer.parseInt(destinationInfo[1]));
     }
 
-    private class PartitionRunner implements Runnable {
+    public void setClientCache(ClientCache clientCache) {
+        this.clientCache = clientCache;
+    }
+
+    private class GetAllInBatches implements Runnable {
 
         private Collection keys;
         private Region region;
 
-        public PartitionRunner(Collection keys, Region region) {
+        GetAllInBatches(Collection keys, Region region) {
             this.keys = keys;
             this.region = region;
         }
 
+        @SuppressWarnings("unchecked")
         @Override
         public void run() {
 
@@ -149,72 +133,6 @@ public class Source {
                 }
             }
             System.out.println(" Partition done with regionName = " + region.getName() + " key size " + keys.size());
-        }
-    }
-
-    private class MyCacheListener extends CacheListenerAdapter {
-
-        private Object writeLock = new Object();
-        private DataOutputStream objectOutputStream;
-
-        public MyCacheListener(Socket socket, String regionName) throws IOException {
-
-            objectOutputStream = new DataOutputStream(socket.getOutputStream());
-            //Not possible to have another thread accessing the stream at this point since we are still in the constructor
-            DataSerializer.writeString(regionName, objectOutputStream);
-        }
-
-        @Override
-        public void afterCreate(EntryEvent entryEvent) {
-            afterUpdate(entryEvent);
-        }
-
-        @Override
-        public void afterUpdate(EntryEvent entryEvent) {
-            try {
-                Action action = new Action(entryEvent.getKey(), entryEvent.getNewValue());
-                action.setPut(true);
-                send(action);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-
-        @Override
-        public void afterInvalidate(EntryEvent entryEvent) {
-            afterDestroy(entryEvent);
-        }
-
-        @Override
-        public void afterDestroy(EntryEvent entryEvent) {
-            try {
-                Action action = new Action(entryEvent.getKey(), entryEvent.getNewValue());
-                action.setPut(false);
-                send(action);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-
-        private void send(Action action) throws IOException {
-            try {
-                if (action.getValue() instanceof PdxInstance) {
-                    action.setPDXInstance(true);
-                    action.setValue(JSONFormatter.toJSON((PdxInstance) action.getValue()));
-                }
-                write(action);
-            } catch (Exception e) {
-                System.out.println("Had error with " + action.getKey() + " - " + action.getValue());
-            }
-        }
-
-        private void write(Action object) throws IOException {
-            HeapDataOutputStream hdos = new HeapDataOutputStream(Version.CURRENT);
-            DataSerializer.writeObject(object, hdos);
-            synchronized (writeLock) {
-                hdos.sendTo((DataOutput) objectOutputStream);
-                objectOutputStream.flush();
-            }
         }
     }
 }

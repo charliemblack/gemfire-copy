@@ -24,11 +24,13 @@ import com.gemstone.gemfire.cache.client.ClientCacheFactory;
 import com.gemstone.gemfire.cache.client.ClientRegionShortcut;
 import com.gemstone.gemfire.pdx.JSONFormatter;
 import com.gemstone.gemfire.pdx.ReflectionBasedAutoSerializer;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import javax.annotation.Resource;
 import java.util.Date;
 
+@Ignore
 public class DataJammer {
 
 
